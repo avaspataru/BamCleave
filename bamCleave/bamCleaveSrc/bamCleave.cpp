@@ -152,6 +152,7 @@ struct  bamFilesContainer : public map<string, CellData>
 int main(int argc, char** argv)
 {
 	stringEx bamFileName;
+	stringEx groupFileName;
 	stringEx chromosomeMapFileName;
 	stringEx outputRoot;
 	stringEx cellSelectFile;
@@ -170,6 +171,7 @@ int main(int argc, char** argv)
 		printf("     bamCleave                   \n");
 		printf(" -b bam filename			     \n");
 		printf(" -m chromosome mapping file	     \n");
+		printf(" -g groups table file            \n");
 		printf(" -p \"XYZ\"  Extracts all chromosomes beginning XYZ into a separate file or files\n");
 		printf("      stripping XYZ from the chromosome names\n");
 		printf(" -c <N> Creates bam files for the top N individual cells  \n");
@@ -190,6 +192,12 @@ int main(int argc, char** argv)
 		if(strcmp(argv[ni], "-b") == 0)
 		{
 			bamFileName = argv[++ni];
+			commandLine += stringEx(" ", argv[ni]);
+		}
+		else if (strcmp(argv[ni], "-g") == 0)
+		{
+			printf("do group stuff!\n");
+			groupFileName = argv[++ni];
 			commandLine += stringEx(" ", argv[ni]);
 		}
 		else if(strcmp(argv[ni], "-m") == 0)
