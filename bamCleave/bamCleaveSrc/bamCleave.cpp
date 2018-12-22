@@ -12,6 +12,7 @@ Splits a BAM file into two bamfiles with separate headers
 #include "api/BamReader.h"
 #include "api/BamWriter.h"
 #include "toolkit/bamtools_sort.h"
+#include<fstream>
 
 using namespace std;
 using namespace BamTools;
@@ -149,6 +150,40 @@ struct  bamFilesContainer : public map<string, CellData>
 	};
 };
 
+map<string, int> getGroupTable(stringEx groupFileName) {
+	//read the groupings from file and put them in a map
+	map<string, int> groupTable;
+	std::ifstream groupFileReader(groupFileName, std::ifstream::in);
+	int cnt = 0;
+	printf("Reading in the groups\n");
+	char c = groupFileReader.get();
+	while (c != EOF && (c>='A' && c<='Z')) {
+		string cellID = "";
+		cellID += c;
+		while(c!='-') { //reading the cellID
+			c = groupFileReader.get();
+			if(c!='-')
+				cellID += c;
+		}
+		c = groupFileReader.get();
+		int groupID = 0;
+		while (c != '\n' && (c>='0'&&c<='9')) { //reading the groupID
+			groupID = groupID * 10 + (c - '0');
+			c = groupFileReader.get();
+		}
+		groupTable[cellID] = groupID;
+		//printing progress
+		if (cnt % 100 == 0) {
+			printf("Have read ", cnt, " cells.\n");
+			printf("Last read ", cellID, groupID, "\n");
+		}
+		cnt++;
+		c = groupFileReader.get(); //skip the enter
+	}
+	printf("Processed cell to group mapping.\n");
+	return groupTable;
+}
+
 int main(int argc, char** argv)
 {
 	stringEx bamFileName;
@@ -162,6 +197,7 @@ int main(int argc, char** argv)
 	int maxCells = 1000;
 	bool cell = false;
 	bool allReads = true;
+	bool groupOption = false;
 
 	if(argc < 1)
 		exitFail("Error: parameter wrong!");
@@ -171,7 +207,7 @@ int main(int argc, char** argv)
 		printf("     bamCleave                   \n");
 		printf(" -b bam filename			     \n");
 		printf(" -m chromosome mapping file	     \n");
-		printf(" -g groups table file            \n");
+		printf(" -g groups based on table file            \n");
 		printf(" -p \"XYZ\"  Extracts all chromosomes beginning XYZ into a separate file or files\n");
 		printf("      stripping XYZ from the chromosome names\n");
 		printf(" -c <N> Creates bam files for the top N individual cells  \n");
@@ -196,8 +232,8 @@ int main(int argc, char** argv)
 		}
 		else if (strcmp(argv[ni], "-g") == 0)
 		{
-			printf("do group stuff!\n");
 			groupFileName = argv[++ni];
+			groupOption = true;
 			commandLine += stringEx(" ", argv[ni]);
 		}
 		else if(strcmp(argv[ni], "-m") == 0)
@@ -248,6 +284,11 @@ int main(int argc, char** argv)
 		_setmaxstdio(maxCells + 10);
 #endif
 
+	map<string, int> groupTable;
+	if (groupOption) {
+		groupTable = getGroupTable(groupFileName);
+	}
+	
 	mapData chromosomeMap;
 	if (chromosomeMapFileName)
 		chromosomeMap.open(chromosomeMapFileName);
@@ -256,7 +297,7 @@ int main(int argc, char** argv)
 	BamReader reader;
 	if (!reader.Open(bamFileName) ) 
 		return EXIT_FAILURE;
-
+ 
 	//	Get the header/sequence information from the existing bam file
 	SamHeader header = reader.GetHeader();
 	RefVector references = reader.GetReferenceData();
