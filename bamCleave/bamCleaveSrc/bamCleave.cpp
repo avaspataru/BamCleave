@@ -133,6 +133,19 @@ struct  bamFilesContainer : public map<string, CellData>
 		j->second.output = new BamWriter();
 		j->second.output->Open(j->second.name, header, references);
 	}
+	
+	void initialiseGroup(int groupID, stringEx cell = "") {
+		iterator j = find(cell);
+		stringEx fileName = "group_";
+		fileName.append(std::to_string(groupID), ".bam");
+
+		if (cell) {
+			j->second.name = fileName;
+			j->second.output = new BamWriter();
+			j->second.output->Open(j->second.name, header, references);
+		}
+	}
+	
 	void closeAndIndex(BamReader & reader)
 	{
 		for (auto & i : This)
@@ -155,7 +168,7 @@ map<string, int> getGroupTable(stringEx groupFileName) {
 	map<string, int> groupTable;
 	std::ifstream groupFileReader(groupFileName, std::ifstream::in);
 	int cnt = 0;
-	printf("Reading in the groups\n");
+	printf("Reading in the groups.\n");
 	char c = groupFileReader.get();
 	while (c != EOF && (c>='A' && c<='Z')) {
 		string cellID = "";
@@ -173,11 +186,11 @@ map<string, int> getGroupTable(stringEx groupFileName) {
 		}
 		groupTable[cellID] = groupID;
 		//printing progress
-		if (cnt % 100 == 0) {
+		/*if (cnt % 100 == 0) {
 			printf("Have read ", cnt, " cells.\n");
 			printf("Last read ", cellID, groupID, "\n");
 		}
-		cnt++;
+		cnt++;*/
 		c = groupFileReader.get(); //skip the enter
 	}
 	printf("Processed cell to group mapping.\n");
@@ -285,8 +298,15 @@ int main(int argc, char** argv)
 #endif
 
 	map<string, int> groupTable;
+	set<int> groupIDs;
 	if (groupOption) {
 		groupTable = getGroupTable(groupFileName);
+		for (std::map<string, int>::iterator it = groupTable.begin(); it != groupTable.end(); ++it) {
+			if (!groupIDs.count((int)it->second))
+				groupIDs.insert(it->second);
+		}
+		printf("Number of groups found: ", groupIDs.size(),"\n");
+		printf("Number of cells read: ", groupTable.size(), "\n");
 	}
 	
 	mapData chromosomeMap;
@@ -458,11 +478,16 @@ int main(int argc, char** argv)
 		for (auto & i : bamFiles)
 			cellList.emplace(i.second.count, i.first);
 
+		printf("size of list:", groupTable.size(),"\n");
 		int count = 0;
-		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <maxCells); i++)
+		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <groupTable.size()); i++)
 		{
+			if (count % 100 == 0) {
+				printf("Printed ", count, ".\n");
+			}
 			try {
-				bamFiles.initialise(i->second);
+				//bamFiles.initialise(i->second);
+				bamFiles.initialiseGroup(groupTable[i->second], i->second);
 			}
 			catch (...)
 			{
@@ -480,98 +505,101 @@ int main(int argc, char** argv)
 		bamFiles.initialise();
 	}
 
-	while (reader.GetNextAlignment(al))
-	{
+	printf("Finished writing");
+	if (!groupOption) {
+
+		while (reader.GetNextAlignment(al))
+		{
 
 #ifdef _DEBUG
-		if (loopCounter > 100000)
-			break;
+			if (loopCounter > 100000)
+				break;
 #endif
 
-		if ((++loopCounter % 1000000) == 0)
-			cout << loopCounter << " reads\n";
+			if ((++loopCounter % 1000000) == 0)
+				cout << loopCounter << " reads\n";
 
-		destination dest = refIdList[al.RefID];
+			destination dest = refIdList[al.RefID];
 
-		al.RefID = dest.refId;
-		//	The reference ID is within the range of chromosome identifiers associaqted with the first genome
-		//	or is -1, which is an unmapped read
-		if (al.MateRefID != -1)
-		{
-			destination dest2 = refIdList[al.MateRefID];
-			if (dest.file != dest2.file)
+			al.RefID = dest.refId;
+			//	The reference ID is within the range of chromosome identifiers associaqted with the first genome
+			//	or is -1, which is an unmapped read
+			if (al.MateRefID != -1)
 			{
-				statsCounts.firstGenome.chimeras++;
-				chimiraFile.print(references[al.RefID].RefName, al.Position, chromosomeMap.mappedVal(references[al.MateRefID].RefName), al.MatePosition);
-				chimiraFile.flush();
-				al.SetIsMateMapped(false);
-				al.MateRefID = al.RefID;
-			}
-			else
-				al.MateRefID = dest2.refId;
-		}
-		if (al.IsMapped())
-		{
-			if (al.IsMateMapped())
-				(dest.file == 1 ? statsCounts.firstGenome : statsCounts.secondGenome).mappedPairs++;
-			else
-				(dest.file == 1 ? statsCounts.firstGenome : statsCounts.secondGenome).singleMapped++;
-		}
-		else
-			statsCounts.unmapped++;
-
-		if (dest.file == 1)
-		{
-			if (cell)
-			{
-				stringEx cellId;
-				if (nameTag)
+				destination dest2 = refIdList[al.MateRefID];
+				if (dest.file != dest2.file)
 				{
-					cellId = al.Name.substr(0, al.Name.find_first_of(nameTag));
-					if (cellId)
-						if (!bamFiles.add(al, cellId))
-							output2.SaveAlignment(al);
-					else
-						output2.SaveAlignment(al);
+					statsCounts.firstGenome.chimeras++;
+					chimiraFile.print(references[al.RefID].RefName, al.Position, chromosomeMap.mappedVal(references[al.MateRefID].RefName), al.MatePosition);
+					chimiraFile.flush();
+					al.SetIsMateMapped(false);
+					al.MateRefID = al.RefID;
 				}
 				else
-				{
-					if (al.GetTag(tagID, cellId))
-						if(!bamFiles.add(al, cellId))
-							output2.SaveAlignment(al);
-					else
-						output2.SaveAlignment(al);
-				}
+					al.MateRefID = dest2.refId;
+			}
+			if (al.IsMapped())
+			{
+				if (al.IsMateMapped())
+					(dest.file == 1 ? statsCounts.firstGenome : statsCounts.secondGenome).mappedPairs++;
+				else
+					(dest.file == 1 ? statsCounts.firstGenome : statsCounts.secondGenome).singleMapped++;
 			}
 			else
-				bamFiles.add(al);
+				statsCounts.unmapped++;
 
+			if (dest.file == 1)
+			{
+				if (cell)
+				{
+					stringEx cellId;
+					if (nameTag)
+					{
+						cellId = al.Name.substr(0, al.Name.find_first_of(nameTag));
+						if (cellId)
+							if (!bamFiles.add(al, cellId))
+								output2.SaveAlignment(al);
+							else
+								output2.SaveAlignment(al);
+					}
+					else
+					{
+						if (al.GetTag(tagID, cellId))
+							if (!bamFiles.add(al, cellId))
+								output2.SaveAlignment(al);
+							else
+								output2.SaveAlignment(al);
+					}
+				}
+				else
+					bamFiles.add(al);
+
+			}
+			else
+				output2.SaveAlignment(al);
 		}
-		else
-			output2.SaveAlignment(al);
+
+		output2.Close();
+
+		statsCounts.print(logFile);
+
+		logFile.print("Saved cell data");
+		logFile.print("Cell", "Reads", "Saved");
+		for (auto & i : bamFiles)
+			if (i.second.output != NULL)
+				logFile.print(i.first, i.second.count, i.second.saved);
+		for (auto & i : bamFiles)
+			if (i.second.output == NULL)
+				logFile.print(i.first, i.second.count, i.second.saved);
+
+		cout << "Indexing first genome files" << endl;
+
+		bamFiles.closeAndIndex(reader);
+
+		cout << "Indexing second genome file" << endl;
+
+		reader.Open(restFileName);
+		reader.CreateIndex();
+		reader.Close();
 	}
-
-	output2.Close();
-
-	statsCounts.print(logFile);
-
-	logFile.print("Saved cell data");
-	logFile.print("Cell", "Reads", "Saved");
-	for (auto & i : bamFiles)
-		if(i.second.output != NULL)
-			logFile.print(i.first, i.second.count,i.second.saved);
-	for (auto & i : bamFiles)
-		if (i.second.output == NULL)
-			logFile.print(i.first, i.second.count, i.second.saved);
-
-	cout << "Indexing first genome files" << endl;
-
-	bamFiles.closeAndIndex(reader);
-
-	cout << "Indexing second genome file" << endl;
-
-	reader.Open(restFileName);
-	reader.CreateIndex();
-	reader.Close();
-
 }
