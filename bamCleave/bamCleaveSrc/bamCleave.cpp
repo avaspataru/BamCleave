@@ -100,8 +100,10 @@ struct  bamFilesContainer : public map<string, CellData>
 	SamHeader & header;
 	RefVector & references;
 	stringEx fileRoot;
+	std::map<int, BamWriter *> groupFileWriters;
+
 	bamFilesContainer(SamHeader & header, RefVector & references, stringEx fileRoot) :header(header), references(references),
-		fileRoot(fileRoot), fileCount(0) {};
+		fileRoot(fileRoot), fileCount(0), groupFileWriters() {};
 	void preadd(stringEx cell = "")
 	{
 		iterator j = find(cell);
@@ -141,7 +143,13 @@ struct  bamFilesContainer : public map<string, CellData>
 
 		if (cell) {
 			j->second.name = fileName;
-			j->second.output = new BamWriter();
+			if (!groupFileWriters.count(groupID)) {
+				j->second.output = new BamWriter();
+				groupFileWriters[groupID]=j->second.output;
+			}
+			else {
+				j->second.output = groupFileWriters[groupID];
+			}
 			j->second.output->Open(j->second.name, header, references);
 		}
 	}
@@ -478,16 +486,22 @@ int main(int argc, char** argv)
 		for (auto & i : bamFiles)
 			cellList.emplace(i.second.count, i.first);
 
+		int size = groupTable.size();
+		if (!groupOption) {
+			size = maxCells;
+		}
 		printf("size of list:", groupTable.size(),"\n");
 		int count = 0;
-		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <groupTable.size()); i++)
+		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <size); i++)
 		{
 			if (count % 100 == 0) {
 				printf("Printed ", count, ".\n");
 			}
 			try {
-				//bamFiles.initialise(i->second);
-				bamFiles.initialiseGroup(groupTable[i->second], i->second);
+				if(!groupOption)
+					bamFiles.initialise(i->second);
+				else
+					bamFiles.initialiseGroup(groupTable[i->second], i->second);
 			}
 			catch (...)
 			{
@@ -506,7 +520,6 @@ int main(int argc, char** argv)
 	}
 
 	printf("Finished writing");
-	if (!groupOption) {
 
 		while (reader.GetNextAlignment(al))
 		{
@@ -601,5 +614,4 @@ int main(int argc, char** argv)
 		reader.Open(restFileName);
 		reader.CreateIndex();
 		reader.Close();
-	}
 }
