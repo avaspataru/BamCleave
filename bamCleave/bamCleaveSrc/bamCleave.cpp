@@ -125,11 +125,17 @@ struct  bamFilesContainer : public map<string, CellData>
 		}
 		return false;
 	}
-	void initialise(stringEx cell = "")
+	void initialise(int groupID = -1, stringEx cell = "")
 	{
 		iterator j = find(cell);
-		if (cell)
-			j->second.name.append("_", cell, ".bam");
+		if (cell) {
+			if (groupID != -1) {
+				stringEx name = "";
+				j->second.name = name.append("group_",groupID);
+			}
+			j->second.name.append("_", cell);
+			j->second.name.append(".bam");
+		}
 		else
 			j->second.name.append("_all.bam");
 		j->second.output = new BamWriter();
@@ -216,9 +222,11 @@ int main(int argc, char** argv)
 	stringEx tagID = "XC";
 	stringEx nameTag;
 	int maxCells = 1000;
+	int maxCellsGroup = 0;
 	bool cell = false;
 	bool allReads = true;
 	bool groupOption = false;
+	bool groupTopOption = false;
 
 	if(argc < 1)
 		exitFail("Error: parameter wrong!");
@@ -228,7 +236,8 @@ int main(int argc, char** argv)
 		printf("     bamCleave                   \n");
 		printf(" -b bam filename			     \n");
 		printf(" -m chromosome mapping file	     \n");
-		printf(" -g groups based on table file            \n");
+		printf(" -g <fileName> groups based on table file  (groupIDs must be integers > 0)         \n");
+		printf(" -x <fileName> <N> writes files for the top N cells of each group   \n");
 		printf(" -p \"XYZ\"  Extracts all chromosomes beginning XYZ into a separate file or files\n");
 		printf("      stripping XYZ from the chromosome names\n");
 		printf(" -c <N> Creates bam files for the top N individual cells  \n");
@@ -243,10 +252,10 @@ int main(int argc, char** argv)
 	string commandLine = argv[0];
 	int ni = 1;
 
-	while(ni < argc)
+	while (ni < argc)
 	{
-		commandLine += stringEx(" ",argv[ni]);
-		if(strcmp(argv[ni], "-b") == 0)
+		commandLine += stringEx(" ", argv[ni]);
+		if (strcmp(argv[ni], "-b") == 0)
 		{
 			bamFileName = argv[++ni];
 			commandLine += stringEx(" ", argv[ni]);
@@ -256,6 +265,22 @@ int main(int argc, char** argv)
 			groupFileName = argv[++ni];
 			groupOption = true;
 			commandLine += stringEx(" ", argv[ni]);
+		}
+		else if (strcmp(argv[ni], "-x") == 0)
+		{
+			groupFileName = argv[++ni];
+			groupTopOption = true;
+			commandLine += stringEx(" ", argv[ni]);
+
+			char* p;
+			maxCellsGroup = strtol(argv[++ni], &p, 10);
+			if (*p)
+			{
+				cellSelectFile = argv[ni];
+				maxCellsGroup = -1;
+			}
+			commandLine += stringEx(" ", argv[ni]);
+			printf("top ", maxCellsGroup);
 		}
 		else if(strcmp(argv[ni], "-m") == 0)
 		{
@@ -307,7 +332,7 @@ int main(int argc, char** argv)
 
 	map<string, int> groupTable;
 	set<int> groupIDs;
-	if (groupOption) {
+	if (groupOption || groupTopOption) {
 		groupTable = getGroupTable(groupFileName);
 		for (std::map<string, int>::iterator it = groupTable.begin(); it != groupTable.end(); ++it) {
 			if (!groupIDs.count((int)it->second))
@@ -487,21 +512,40 @@ int main(int argc, char** argv)
 			cellList.emplace(i.second.count, i.first);
 
 		int size = groupTable.size();
-		if (!groupOption) {
+		if (!groupOption && !groupTopOption) {
 			size = maxCells;
 		}
 		printf("size of list:", groupTable.size(),"\n");
 		int count = 0;
-		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <size); i++)
+		int todoTopGroup = maxCellsGroup * groupIDs.size();
+		std::map<int, int> groupProgress;
+		for (std::set<int>::iterator it = groupIDs.begin(); it != groupIDs.end(); ++it)
+		{
+			groupProgress[*it] = maxCellsGroup; 
+		}
+		
+		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <size) && (!groupTopOption || todoTopGroup>0); i++)
 		{
 			if (count % 100 == 0) {
 				printf("Printed ", count, ".\n");
 			}
+			if (groupTopOption) {
+				if (groupProgress[groupTable[i->second]] == 0)
+					continue;
+				else {
+					groupProgress[groupTable[i->second]]--;
+					todoTopGroup--;
+				}
+			}
 			try {
 				if(!groupOption)
-					bamFiles.initialise(i->second);
-				else
+					if(!groupTopOption)
+						bamFiles.initialise(-1,i->second);
+					else 
+						bamFiles.initialise(groupTable[i->second], i->second);
+				else {
 					bamFiles.initialiseGroup(groupTable[i->second], i->second);
+				}
 			}
 			catch (...)
 			{
@@ -518,8 +562,6 @@ int main(int argc, char** argv)
 		bamFiles.preadd();
 		bamFiles.initialise();
 	}
-
-	printf("Finished writing");
 
 		while (reader.GetNextAlignment(al))
 		{
