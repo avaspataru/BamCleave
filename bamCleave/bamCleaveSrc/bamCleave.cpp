@@ -16,7 +16,7 @@ Splits a BAM file into two bamfiles with separate headers
 
 using namespace std;
 using namespace BamTools;
-
+	
 struct genomeStats
 {
 	int mappedPairs,singleMapped,chimeras;
@@ -236,7 +236,7 @@ int main(int argc, char** argv)
 		printf("     bamCleave                   \n");
 		printf(" -b bam filename			     \n");
 		printf(" -m chromosome mapping file	     \n");
-		printf(" -g <fileName> groups based on table file  (groupIDs must be integers > 0)         \n");
+		printf(" -g <fileName> groups based on table file  (groupIDs must be integers >= 0)         \n");
 		printf(" -x <fileName> <N> writes files for the top N cells of each group   \n");
 		printf(" -p \"XYZ\"  Extracts all chromosomes beginning XYZ into a separate file or files\n");
 		printf("      stripping XYZ from the chromosome names\n");
@@ -477,6 +477,8 @@ int main(int argc, char** argv)
 	BamAlignment al;
 	statistics statsCounts;
 
+	std::map<string, bool> assignedFile;
+
 	int  loopCounter = 0;
 
 	if (cell)
@@ -488,7 +490,7 @@ int main(int argc, char** argv)
 				break;
 #endif
 			if ((++loopCounter % 1000000) == 0)
-				cout << loopCounter << " reads\n";
+				cout << loopCounter << " reads*\n";
 			destination dest = refIdList[al.RefID];
 			if (dest.file == 1)
 			{
@@ -503,6 +505,7 @@ int main(int argc, char** argv)
 					if (al.GetTag(tagID, cellId))
 						bamFiles.preadd(cellId);
 				}
+				//printf("Cell id separated by -n : ", cellId, "\n");
 			}
 		}
 		reader.Rewind();
@@ -524,11 +527,20 @@ int main(int argc, char** argv)
 			groupProgress[*it] = maxCellsGroup; 
 		}
 		
-		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && (count++ <size) && (!groupTopOption || todoTopGroup>0); i++)
+
+		printf("size of cellList: ", cellList.size(), "\n");
+		printf("size var: ", size, "\n");
+		printf("groupt: ", groupTopOption, "\n");
+		printf("todotop: ", todoTopGroup, "\n");
+		int countfromgr = 0;
+		assignedFile[""] = false;
+		for (multimap<int, string>::reverse_iterator i = cellList.rbegin(); (i != cellList.rend()) && countfromgr<=groupTable.size() && count<maxCells; i++)
 		{
-			if (count % 100 == 0) {
+			if (count % 1 == 0) {
 				printf("Printed ", count, ".\n");
+				printf("cell ", i->second, " ", groupTable[i->second]," ",i->first);
 			}
+			count++;
 			if (groupTopOption) {
 				if (groupProgress[groupTable[i->second]] == 0)
 					continue;
@@ -537,14 +549,22 @@ int main(int argc, char** argv)
 					todoTopGroup--;
 				}
 			}
+			assignedFile[i->second] = false;
 			try {
-				if(!groupOption)
-					if(!groupTopOption)
-						bamFiles.initialise(-1,i->second);
-					else 
+				if (!groupOption)
+					if (!groupTopOption)
+						bamFiles.initialise(-1, i->second);
+					else
 						bamFiles.initialise(groupTable[i->second], i->second);
 				else {
-					bamFiles.initialiseGroup(groupTable[i->second], i->second);
+					if (groupOption && (groupTable.count(i->second)==0))
+						bamFiles.initialiseGroup(77, i->second);
+					else {
+						printf("gr ", groupTable[i->second], " for ", i->second,"\n");
+						countfromgr++;
+						bamFiles.initialiseGroup(groupTable[i->second], i->second);
+						assignedFile[i->second] = true;
+					}
 				}
 			}
 			catch (...)
@@ -559,10 +579,11 @@ int main(int argc, char** argv)
 	}
 	else
 	{
+		printf("inelse\n");
 		bamFiles.preadd();
 		bamFiles.initialise();
 	}
-
+	printf("tothewhile\n");
 		while (reader.GetNextAlignment(al))
 		{
 
@@ -570,31 +591,42 @@ int main(int argc, char** argv)
 			if (loopCounter > 100000)
 				break;
 #endif
+			//printf("inwhile\n");
+			string cellId;
+			int tagg = al.GetTag(tagID, cellId);
+
+			if (assignedFile[cellId] == false)
+				continue;
+			//printf("continued with  ",groupTable[cellId]," for ",cellId,"\n");
 
 			if ((++loopCounter % 1000000) == 0)
-				cout << loopCounter << " reads\n";
+				cout << loopCounter << " reads**\n";
 
 			destination dest = refIdList[al.RefID];
-
+			//printf("declared dest\n");
 			al.RefID = dest.refId;
 			//	The reference ID is within the range of chromosome identifiers associaqted with the first genome
 			//	or is -1, which is an unmapped read
 			if (al.MateRefID != -1)
 			{
+				printf("first if\n");
 				destination dest2 = refIdList[al.MateRefID];
 				if (dest.file != dest2.file)
 				{
+					printf("in s if\n");
 					statsCounts.firstGenome.chimeras++;
 					chimiraFile.print(references[al.RefID].RefName, al.Position, chromosomeMap.mappedVal(references[al.MateRefID].RefName), al.MatePosition);
 					chimiraFile.flush();
 					al.SetIsMateMapped(false);
 					al.MateRefID = al.RefID;
+					printf("end s if\n");
 				}
 				else
 					al.MateRefID = dest2.refId;
 			}
 			if (al.IsMapped())
 			{
+				//printf("al.IsMapped \n");
 				if (al.IsMateMapped())
 					(dest.file == 1 ? statsCounts.firstGenome : statsCounts.secondGenome).mappedPairs++;
 				else
@@ -605,12 +637,15 @@ int main(int argc, char** argv)
 
 			if (dest.file == 1)
 			{
-				if (cell)
+				if (cell) 
 				{
-					stringEx cellId;
+					
 					if (nameTag)
 					{
+						stringEx cellId;
+						printf("cellid check ");
 						cellId = al.Name.substr(0, al.Name.find_first_of(nameTag));
+						printf(cellId, "\n");
 						if (cellId)
 							if (!bamFiles.add(al, cellId))
 								output2.SaveAlignment(al);
@@ -619,11 +654,18 @@ int main(int argc, char** argv)
 					}
 					else
 					{
-						if (al.GetTag(tagID, cellId))
-							if (!bamFiles.add(al, cellId))
+						//printf(al.GetTag(tagID, cellId)," - cell tag\n");
+						if (tagg) {
+							if (!bamFiles.add(al, cellId)) {
 								output2.SaveAlignment(al);
-							else
+								//printf("line 661\n");
+							}
+							else {
+								//printf("line 664\n");
 								output2.SaveAlignment(al);
+								//printf("line 667\n");
+							}
+						}
 					}
 				}
 				else

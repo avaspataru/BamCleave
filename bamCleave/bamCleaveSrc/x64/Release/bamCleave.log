@@ -1,7 +1,6 @@
-﻿  bamCleave.cpp
-  Generating code
-  1 of 4662 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+﻿  Generating code
+  1 of 4822 functions (<0.1%) were compiled, the rest were copied from previous compilation.
     0 functions were new in current compilation
-    0 functions had inline decision re-evaluated but remain unchanged
+    2 functions had inline decision re-evaluated but remain unchanged
   Finished generating code
   bamCleave.vcxproj -> C:\Users\spata\Documents\Uni of warwick\cs3 - Project\Nigel software\bamCleave\x64\Release\bamCleave.exe
